@@ -7,7 +7,7 @@
      include( FetchContent )
      FetchContent_Declare( date_src
        GIT_REPOSITORY https://github.com/HowardHinnant/date.git
-       GIT_TAG        2.4.2  # adjust tag/branch/commit as needed
+       GIT_TAG        v3.0.0  # adjust tag/branch/commit as needed
      )
      FetchContent_MakeAvailable(date_src)
      ...
@@ -17,7 +17,8 @@
 
 cmake_minimum_required( VERSION 3.7 )
 
-project( date VERSION 2.4.1 )
+project( date VERSION 3.0.0 )
+set(ABI_VERSION 3) # used as SOVERSION, increment when ABI changes
 
 include( GNUInstallDirs )
 include( cmake/pkg.cmake )
@@ -62,30 +63,51 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.15)
     # public headers will get installed:
     set_target_properties( date PROPERTIES PUBLIC_HEADER include/date/date.h )
 endif ()
-target_compile_definitions( date INTERFACE
-    #To workaround libstdc++ issue https://github.com/HowardHinnant/date/issues/388
-    ONLY_C_LOCALE=$<IF:$<BOOL:${COMPILE_WITH_C_LOCALE}>,1,0>
-    $<$<BOOL:${DISABLE_STRING_VIEW}>:HAS_STRING_VIEW=0> )
+
+# These used to be set with generator expressions,
+#
+#   ONLY_C_LOCALE=$<IF:$<BOOL:${COMPILE_WITH_C_LOCALE}>,1,0>
+#
+# which expand in the output target file to, e.g.
+#
+#   ONLY_C_LOCALE=$<IF:$<BOOL:FALSE>,1,0>
+#
+# This string is then (somtimes?) not correctly interpreted.
+if ( COMPILE_WITH_C_LOCALE )
+  # To workaround libstdc++ issue https://github.com/HowardHinnant/date/issues/388
+  target_compile_definitions( date INTERFACE ONLY_C_LOCALE=1 )
+else()
+  target_compile_definitions( date INTERFACE ONLY_C_LOCALE=0 )
+endif()
+if ( DISABLE_STRING_VIEW )
+  target_compile_definitions( date INTERFACE HAS_STRING_VIEW=0 -DHAS_DEDUCTION_GUIDES=0 )
+endif()
 
 #[===================================================================[
    tz (compiled) library
 #]===================================================================]
 if( BUILD_TZ_LIB )
-    add_library( tz )
-    target_sources( tz
+    add_library( date-tz )
+    target_sources( date-tz
       PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>$<INSTALL_INTERFACE:include>/date/tz.h
-        $<$<BOOL:${IOS}>:$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>$<INSTALL_INTERFACE:include>/date/ios.h>
       PRIVATE
         include/date/tz_private.h
-        $<$<BOOL:${IOS}>:src/ios.mm>
         src/tz.cpp )
-    add_library( date::tz ALIAS tz )
-    target_link_libraries( tz PUBLIC date )
-    target_include_directories( tz PUBLIC
+    if ( IOS )
+      target_sources( date-tz
+        PUBLIC
+          $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>$<INSTALL_INTERFACE:include>/date/ios.h
+        PRIVATE
+          src/ios.mm )
+    endif()
+    add_library( date::date-tz ALIAS date-tz )
+    target_link_libraries( date-tz PUBLIC date )
+    target_include_directories( date-tz PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include> )
-    target_compile_definitions( tz
+
+    target_compile_definitions( date-tz
         PRIVATE
             AUTO_DOWNLOAD=0
             HAS_REMOTE_API=$<IF:$<OR:$<BOOL:${USE_SYSTEM_TZ_DB}>,$<BOOL:${MANUAL_TZ_DB}>>,0,1>
@@ -97,27 +119,46 @@ if( BUILD_TZ_LIB )
             $<$<AND:$<BOOL:${WIN32}>,$<BOOL:${BUILD_SHARED_LIBS}>>:DATE_USE_DLL=1> )
     set(TZ_HEADERS include/date/tz.h)
     if (USE_RES_TZ_DB)
-        target_compile_definitions(tz PRIVATE DATE_EMBED_TZ_DB)
+        target_compile_definitions(date-tz PRIVATE DATE_EMBED_TZ_DB)
         file(GLOB ianatzdb-files ${CMAKE_CURRENT_SOURCE_DIR}/ianatzdb/*)
         create_resource(${CMAKE_CURRENT_SOURCE_DIR}/ianatzdb "${ianatzdb-files}" ianatzdb)
-        target_link_libraries(tz PUBLIC ianatzdb ianatzdb-res)
+        target_link_libraries(date-tz PUBLIC ianatzdb ianatzdb-res)
     endif()
+
+    if ( USE_SYSTEM_TZ_DB OR MANUAL_TZ_DB )
+      target_compile_definitions( date-tz PRIVATE HAS_REMOTE_API=0 )
+    else()
+      target_compile_definitions( date-tz PRIVATE HAS_REMOTE_API=1 )
+    endif()
+
+    if ( USE_SYSTEM_TZ_DB AND NOT WIN32 AND NOT MANUAL_TZ_DB )
+      target_compile_definitions( date-tz PRIVATE INSTALL=. PUBLIC USE_OS_TZDB=1 )
+    else()
+      target_compile_definitions( date-tz PUBLIC USE_OS_TZDB=0 )
+    endif()
+
+    if ( WIN32 AND BUILD_SHARED_LIBS )
+      target_compile_definitions( date-tz PUBLIC DATE_BUILD_DLL=1 )
+    endif()
+
+    set(TZ_HEADERS include/date/tz.h)
+
     if( IOS )
         list(APPEND TZ_HEADERS include/date/ios.h)
     endif( )
-    set_target_properties( tz PROPERTIES
+    set_target_properties( date-tz PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         PUBLIC_HEADER "${TZ_HEADERS}"
         VERSION "${PROJECT_VERSION}"
-        SOVERSION "${PROJECT_VERSION}" )
+        SOVERSION "${ABI_VERSION}" )
     if( NOT MSVC )
         find_package( Threads )
-        target_link_libraries( tz PUBLIC Threads::Threads )
+        target_link_libraries( date-tz PUBLIC Threads::Threads )
     endif( )
     if( NOT USE_RES_TZ_DB AND NOT USE_SYSTEM_TZ_DB AND NOT MANUAL_TZ_DB )
         find_package( CURL REQUIRED )
-        target_include_directories( tz SYSTEM PRIVATE ${CURL_INCLUDE_DIRS} )
-        target_link_libraries( tz PRIVATE ${CURL_LIBRARIES} )
+        target_include_directories( date-tz SYSTEM PRIVATE ${CURL_INCLUDE_DIRS} )
+        target_link_libraries( date-tz PRIVATE ${CURL_LIBRARIES} )
     endif( )
 endif( )
 
@@ -143,13 +184,13 @@ if (ENABLE_DATE_INSTALL)
     endif ()
 
     if( BUILD_TZ_LIB )
-        install( TARGETS tz
+        install( TARGETS date-tz
             EXPORT dateConfig
             PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/date
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} )  # This is for Windows
-        export( TARGETS tz NAMESPACE date:: APPEND FILE dateTargets.cmake )
+        export( TARGETS date-tz NAMESPACE date:: APPEND FILE dateTargets.cmake )
     endif( )
 
     if( WIN32 AND NOT CYGWIN)
@@ -173,7 +214,7 @@ if( ENABLE_DATE_TESTING )
     enable_testing( )
 
     add_custom_target( testit COMMAND ${CMAKE_CTEST_COMMAND} )
-    add_dependencies( testit tz )
+    add_dependencies( testit date-tz )
 
     function( add_pass_tests TEST_GLOB TEST_PREFIX )
         file( GLOB_RECURSE FILENAMES ${TEST_GLOB} )
@@ -187,7 +228,7 @@ if( ENABLE_DATE_TESTING )
                 set( TST_NAME ${PREFIX}_test )
                 add_executable( ${BIN_NAME} EXCLUDE_FROM_ALL ${TEST_FILE} )
                 add_test( ${TST_NAME} ${BIN_NAME} )
-                target_link_libraries( ${BIN_NAME} tz )
+                target_link_libraries( ${BIN_NAME} date-tz )
                 # HACK: because the test files don't use FQ includes:
                 target_include_directories( ${BIN_NAME} PRIVATE include/date )
                 add_dependencies( testit ${BIN_NAME} )
@@ -216,7 +257,7 @@ if( ENABLE_DATE_TESTING )
                     ${CMAKE_CXX_COMPILER}
                     -std=c++14
                     -L${CMAKE_BINARY_DIR}/
-                    -ltz
+                    -ldate-tz
                     -I${PROJECT_SOURCE_DIR}/include
                     -I${PROJECT_SOURCE_DIR}/include/date
                     -o ${BIN_NAME}
