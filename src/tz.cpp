@@ -166,7 +166,7 @@
 #if defined(_MSC_VER) && defined(SHORTENED_CURL_INCLUDE)
    // For rmt_curl nuget package
 #  include <curl.h>
-#elseif !defined(DATE_EMBED_TZ_DB)
+#elif !defined(DATE_EMBED_TZ_DB)
 #  include <curl/curl.h>
 #endif
 #endif
