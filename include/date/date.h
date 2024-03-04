@@ -4202,6 +4202,7 @@ make_time(const std::chrono::duration<Rep, Period>& d)
     return hh_mm_ss<std::chrono::duration<Rep, Period>>(d);
 }
 
+#if !defined(_LIBCPP_VERSION) || _LIBCPP_VERSION < 170000 || !defined(_LIBCPP_STD_VER) || _LIBCPP_STD_VER < 20
 template <class CharT, class Traits, class Duration>
 inline
 typename std::enable_if
@@ -4214,6 +4215,7 @@ operator<<(std::basic_ostream<CharT, Traits>& os, const sys_time<Duration>& tp)
     auto const dp = date::floor<days>(tp);
     return os << year_month_day(dp) << ' ' << make_time(tp-dp);
 }
+#endif
 
 template <class CharT, class Traits>
 inline
