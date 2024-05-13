@@ -3575,7 +3575,7 @@ init_tzdb()
     std::unique_ptr<tzdb> db(new tzdb);
 
 #if DATE_EMBED_TZ_DB
-    db->version = "2019c";
+    db->version = "2024a";
 #elif AUTO_DOWNLOAD
     if (!file_exists(install))
     {
