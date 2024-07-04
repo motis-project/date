@@ -34,7 +34,7 @@ option( BUILD_SHARED_LIBS  "Build a shared version of library" OFF )
 option( ENABLE_DATE_INSTALL "Add installation for date library" OFF )
 option( ENABLE_DATE_TESTING "Enable unit tests" OFF )
 option( DISABLE_STRING_VIEW "Disable string view" OFF )
-option( COMPILE_WITH_C_LOCALE "define ONLY_C_LOCALE=1" OFF )
+option( COMPILE_WITH_C_LOCALE "define ONLY_C_LOCALE=1" ON )
 option( BUILD_TZ_LIB "build/install of TZ library" ON )
 
 if( ENABLE_DATE_TESTING AND NOT BUILD_TZ_LIB )
